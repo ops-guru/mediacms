@@ -6,7 +6,7 @@ DEBUG = False
 
 # PORTAL NAME, this is the portal title and
 # is also shown on several places as emails
-PORTAL_NAME = "MediaCMS"
+PORTAL_NAME = "OpsGuru TV"
 PORTAL_DESCRIPTION = ""
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Europe/London"
@@ -19,7 +19,7 @@ CAN_ADD_MEDIA = "all"
 PORTAL_WORKFLOW = "public"
 
 # valid values: 'light', 'dark'.
-DEFAULT_THEME = "light"
+DEFAULT_THEME = "dark"
 
 
 # These are passed on every request
@@ -281,6 +281,7 @@ INSTALLED_APPS = [
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
+    'allauth.socialaccount.providers.google',
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -300,6 +301,20 @@ INSTALLED_APPS = [
     "ckeditor",
     "drf_yasg",
 ]
+
+SOCIALACCOUNT_LOGIN_ON_GET=True
+
+SOCIALACCOUNT_PROVIDERS = {
+    'google': {
+        'SCOPE': [
+            'profile',
+            'email',
+        ],
+        'AUTH_PARAMS': {
+            'access_type': 'online',
+        }
+    }
+}
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
