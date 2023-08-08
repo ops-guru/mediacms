@@ -2,7 +2,7 @@ import os
 
 from celery.schedules import crontab
 
-DEBUG = False
+DEBUG = True
 
 # PORTAL NAME, this is the portal title and
 # is also shown on several places as emails
@@ -13,7 +13,7 @@ TIME_ZONE = "Europe/London"
 
 # who can add media
 # valid options include 'all', 'email_verified', 'advancedUser'
-CAN_ADD_MEDIA = "all"
+CAN_ADD_MEDIA = "advancedUser"
 
 # valid choices here are 'public', 'private', 'unlisted
 PORTAL_WORKFLOW = "public"
@@ -44,9 +44,9 @@ ALLOW_RATINGS = False
 ALLOW_RATINGS_CONFIRMED_EMAIL_ONLY = True
 
 # ip of the server should be part of this
-ALLOWED_HOSTS = ["*", "mediacms.io", "127.0.0.1", "localhost"]
+ALLOWED_HOSTS = ["*", "mediacms.io", "127.0.0.1", "localhost","tv.opsguru.io"]
 
-FRONTEND_HOST = "http://localhost"
+FRONTEND_HOST = "https://tv.opsguru.io"
 # this variable - along with SSL_FRONTEND_HOST is used on several places
 # as email where a URL need appear etc
 
