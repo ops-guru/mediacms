@@ -41,6 +41,7 @@ services:
       ADMIN_USER: 'admin'
       ADMIN_EMAIL: 'admin@localhost'
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DEBUG: 'true'
     command: "./deploy/docker/prestart.sh"
     restart: on-failure
     depends_on:
