@@ -9,7 +9,7 @@ DEBUG = True
 PORTAL_NAME = "OpsGuru TV"
 PORTAL_DESCRIPTION = ""
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "Europe/London"
+TIME_ZONE = "America/Toronto"
 
 # who can add media
 # valid options include 'all', 'email_verified', 'advancedUser'
@@ -28,7 +28,7 @@ DEFAULT_THEME = "dark"
 # not for user uploaded media!
 LOAD_FROM_CDN = False
 LOGIN_ALLOWED = True  # whether the login button appears
-REGISTER_ALLOWED = True  # whether the register button appears
+REGISTER_ALLOWED = False  # whether the register button appears
 UPLOAD_MEDIA_ALLOWED = True  # whether the upload media button appears
 CAN_LIKE_MEDIA = True  # whether the like media appears
 CAN_DISLIKE_MEDIA = True  # whether the dislike media appears
@@ -496,6 +496,8 @@ if GLOBAL_LOGIN_REQUIRED:
         r'/accounts/login/$',
         r'/accounts/logout/$',
         r'/accounts/signup/$',
+        r'/accounts/google/login/$',
+        r'/accounts/google/login/callback/$'
         r'/accounts/password/.*/$',
         r'/accounts/confirm-email/.*/$',
         r'/api/v[0-9]+/',
