@@ -10,8 +10,7 @@
 		<h1>Sign In</h1>
 
 		<form class="login" method="POST" action="{% url 'account_login' %}">
-		  {% csrf_token %}
-		  {{ form.as_p }}
+		  
 		  <a href="{% provider_login_url 'google'%}?next=/">
 			  <i class="fab fa-google"></i>
 			  Login with Google
