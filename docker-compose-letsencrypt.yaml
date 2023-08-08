@@ -41,6 +41,7 @@ services:
       ADMIN_USER: 'admin'
       ADMIN_EMAIL: 'admin@localhost'
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      #https://github.com/mediacms-io/mediacms/discussions/81 to reset password
       DEBUG: 'true'
     command: "./deploy/docker/prestart.sh"
     restart: on-failure
