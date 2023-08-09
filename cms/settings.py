@@ -499,7 +499,7 @@ if GLOBAL_LOGIN_REQUIRED:
         r'/accounts/signup/$',
         r'/accounts/google/login/$',
         r'/accounts/google/login/.*/$',
-        r'/accounts/google/login/callback/$'
+        r'/accounts/google/login/callback/.*/$',
         r'/accounts/password/.*/$',
         r'/accounts/confirm-email/.*/$',
         r'/api/v[0-9]+/',
