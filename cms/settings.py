@@ -498,6 +498,7 @@ if GLOBAL_LOGIN_REQUIRED:
         r'/accounts/logout/$',
         r'/accounts/signup/$',
         r'/accounts/google/login/$',
+        r'/accounts/google/login/.*/$',
         r'/accounts/google/login/callback/$'
         r'/accounts/password/.*/$',
         r'/accounts/confirm-email/.*/$',
