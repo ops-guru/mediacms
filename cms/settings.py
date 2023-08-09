@@ -2,7 +2,7 @@ import os
 
 from celery.schedules import crontab
 
-DEBUG = True
+DEBUG = False
 
 # PORTAL NAME, this is the portal title and
 # is also shown on several places as emails
@@ -31,7 +31,7 @@ LOGIN_ALLOWED = True  # whether the login button appears
 REGISTER_ALLOWED = False  # whether the register button appears
 UPLOAD_MEDIA_ALLOWED = True  # whether the upload media button appears
 CAN_LIKE_MEDIA = True  # whether the like media appears
-CAN_DISLIKE_MEDIA = True  # whether the dislike media appears
+CAN_DISLIKE_MEDIA = False  # whether the dislike media appears
 CAN_REPORT_MEDIA = True  # whether the report media appears
 CAN_SHARE_MEDIA = True  # whether the share media appears
 # how many times an item need be reported
@@ -68,7 +68,7 @@ EMAIL_USE_TLS = True
 SERVER_EMAIL = DEFAULT_FROM_EMAIL
 EMAIL_HOST = "mediacms.io"
 EMAIL_PORT = 587
-ADMIN_EMAIL_LIST = ["info@mediacms.io"]
+ADMIN_EMAIL_LIST = ["jonathan@opsguru.io"]
 
 
 MEDIA_IS_REVIEWED = True  # whether an admin needs to review a media file.
@@ -121,7 +121,7 @@ ACCOUNT_LOGIN_ATTEMPTS_TIMEOUT = 5
 # registration won't be open, might also consider to remove links for register
 USERS_CAN_SELF_REGISTER = True
 
-RESTRICTED_DOMAINS_FOR_USER_REGISTRATION = ["xxx.com", "emaildomainwhatever.com"]
+RESTRICTED_DOMAINS_FOR_USER_REGISTRATION = ["opsguru.io"]
 
 # django rest settings
 REST_FRAMEWORK = {
@@ -461,7 +461,7 @@ LOCAL_INSTALL = False
 
 # this is an option to make the whole portal available to logged in users only
 # it is placed here so it can be overrided on local_settings.py
-GLOBAL_LOGIN_REQUIRED = False
+GLOBAL_LOGIN_REQUIRED = True
 
 # TODO: separate settings on production/development more properly, for now
 # this should be ok
