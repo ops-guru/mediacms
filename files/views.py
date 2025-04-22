@@ -1,13 +1,15 @@
 from datetime import datetime, timedelta
 
+from allauth.socialaccount.models import SocialApp
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.postgres.search import SearchQuery
 from django.core.mail import EmailMessage
 from django.db.models import Q
-from django.http import HttpResponseRedirect
-from django.shortcuts import get_object_or_404, render
+from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from drf_yasg import openapi as openapi
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import permissions, status
@@ -24,10 +26,18 @@ from rest_framework.views import APIView
 
 from actions.models import USER_MEDIA_ACTIONS, MediaAction
 from cms.custom_pagination import FastPaginationWithoutCount
-from cms.permissions import IsAuthorizedToAdd, IsUserOrEditor, user_allowed_to_upload
+from cms.permissions import (
+    IsAuthorizedToAdd,
+    IsAuthorizedToAddComment,
+    IsUserOrEditor,
+    user_allowed_to_upload,
+)
+from cms.version import VERSION
+from identity_providers.models import LoginOption
 from users.models import User
 
-from .forms import ContactForm, MediaForm, SubtitleForm
+from .forms import ContactForm, EditSubtitleForm, MediaForm, SubtitleForm
+from .frontend_translations import translate_string
 from .helpers import clean_query, get_alphanumeric_only, produce_ffmpeg_commands
 from .methods import (
     check_comment_for_mention,
@@ -48,6 +58,7 @@ from .models import (
     Media,
     Playlist,
     PlaylistMedia,
+    Subtitle,
     Tag,
 )
 from .serializers import (
@@ -70,8 +81,15 @@ VALID_USER_ACTIONS = [action for action, name in USER_MEDIA_ACTIONS]
 def about(request):
     """About view"""
 
-    context = {}
+    context = {"VERSION": VERSION}
     return render(request, "cms/about.html", context)
+
+
+def setlanguage(request):
+    """Set Language view"""
+
+    context = {}
+    return render(request, "cms/set_language.html", context)
 
 
 @login_required
@@ -92,11 +110,68 @@ def add_subtitle(request):
         form = SubtitleForm(media, request.POST, request.FILES)
         if form.is_valid():
             subtitle = form.save()
-            messages.add_message(request, messages.INFO, "Subtitle was added!")
-            return HttpResponseRedirect(subtitle.media.get_absolute_url())
+            new_subtitle = Subtitle.objects.filter(id=subtitle.id).first()
+            try:
+                new_subtitle.convert_to_srt()
+                messages.add_message(request, messages.INFO, "Subtitle was added!")
+                return HttpResponseRedirect(subtitle.media.get_absolute_url())
+            except:  # noqa: E722
+                new_subtitle.delete()
+                error_msg = "Invalid subtitle format. Use SubRip (.srt) or WebVTT (.vtt) files."
+                form.add_error("subtitle_file", error_msg)
+
     else:
         form = SubtitleForm(media_item=media)
-    return render(request, "cms/add_subtitle.html", {"form": form})
+    subtitles = media.subtitles.all()
+    context = {"media": media, "form": form, "subtitles": subtitles}
+    return render(request, "cms/add_subtitle.html", context)
+
+
+@login_required
+def edit_subtitle(request):
+    subtitle_id = request.GET.get("id", "").strip()
+    action = request.GET.get("action", "").strip()
+    if not subtitle_id:
+        return HttpResponseRedirect("/")
+    subtitle = Subtitle.objects.filter(id=subtitle_id).first()
+
+    if not subtitle:
+        return HttpResponseRedirect("/")
+
+    if not (request.user == subtitle.user or is_mediacms_editor(request.user) or is_mediacms_manager(request.user)):
+        return HttpResponseRedirect("/")
+
+    context = {"subtitle": subtitle, "action": action}
+
+    if action == "download":
+        response = HttpResponse(subtitle.subtitle_file.read(), content_type="text/vtt")
+        filename = subtitle.subtitle_file.name.split("/")[-1]
+
+        if not filename.endswith(".vtt"):
+            filename = f"{filename}.vtt"
+
+        response["Content-Disposition"] = f"attachment; filename={filename}"  # noqa
+
+        return response
+
+    if request.method == "GET":
+        form = EditSubtitleForm(subtitle)
+        context["form"] = form
+    elif request.method == "POST":
+        confirm = request.GET.get("confirm", "").strip()
+        if confirm == "true":
+            messages.add_message(request, messages.INFO, "Subtitle was deleted")
+            redirect_url = subtitle.media.get_absolute_url()
+            subtitle.delete()
+            return HttpResponseRedirect(redirect_url)
+        form = EditSubtitleForm(subtitle, request.POST)
+        subtitle_text = form.data["subtitle"]
+        with open(subtitle.subtitle_file.path, "w") as ff:
+            ff.write(subtitle_text)
+
+        messages.add_message(request, messages.INFO, "Subtitle was edited")
+        return HttpResponseRedirect(subtitle.media.get_absolute_url())
+    return render(request, "cms/edit_subtitle.html", context)
 
 
 def categories(request):
@@ -189,7 +264,7 @@ def edit_media(request):
                             tag = Tag.objects.create(title=tag, user=request.user)
                         if tag not in media.tags.all():
                             media.tags.add(tag)
-            messages.add_message(request, messages.INFO, "Media was edited!")
+            messages.add_message(request, messages.INFO, translate_string(request.LANGUAGE_CODE, "Media was edited"))
             return HttpResponseRedirect(media.get_absolute_url())
     else:
         form = MediaForm(request.user, instance=media)
@@ -287,9 +362,19 @@ def search(request):
     """Search view"""
 
     context = {}
-    RSS_URL = f"/rss{request.environ['REQUEST_URI']}"
+    RSS_URL = f"/rss{request.environ.get('REQUEST_URI')}"
     context["RSS_URL"] = RSS_URL
     return render(request, "cms/search.html", context)
+
+
+def sitemap(request):
+    """Sitemap"""
+
+    context = {}
+    context["media"] = list(Media.objects.filter(Q(listable=True)).order_by("-add_date"))
+    context["playlists"] = list(Playlist.objects.filter().order_by("-add_date"))
+    context["users"] = list(User.objects.filter())
+    return render(request, "sitemap.xml", context, content_type="application/xml")
 
 
 def tags(request):
@@ -306,6 +391,7 @@ def tos(request):
     return render(request, "cms/tos.html", context)
 
 
+@login_required
 def upload_media(request):
     """Upload media view"""
 
@@ -454,9 +540,10 @@ class MediaDetail(APIView):
             # this need be explicitly called, and will call
             # has_object_permission() after has_permission has succeeded
             self.check_object_permissions(self.request, media)
-
             if media.state == "private" and not (self.request.user == media.user or is_mediacms_editor(self.request.user)):
-                if (not password) or (not media.password) or (password != media.password):
+                if getattr(settings, 'USE_RBAC', False) and self.request.user.is_authenticated and self.request.user.has_member_access_to_media(media):
+                    pass
+                elif (not password) or (not media.password) or (password != media.password):
                     return Response(
                         {"detail": "media is private"},
                         status=status.HTTP_401_UNAUTHORIZED,
@@ -588,14 +675,15 @@ class MediaDetail(APIView):
         media = self.get_object(friendly_token)
         if isinstance(media, Response):
             return media
-
         serializer = MediaSerializer(media, data=request.data, context={"request": request})
         if serializer.is_valid():
-            if request.data.get('media_file'):
-                media_file = request.data["media_file"]
-                serializer.save(user=request.user, media_file=media_file)
-            else:
-                serializer.save(user=request.user)
+            serializer.save(user=request.user)
+            # no need to update the media file itself, only the metadata
+            # if request.data.get('media_file'):
+            #    media_file = request.data["media_file"]
+            #    serializer.save(user=request.user, media_file=media_file)
+            # else:
+            #    serializer.save(user=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -650,6 +738,9 @@ class MediaActions(APIView):
     def get(self, request, friendly_token, format=None):
         # show date and reason for each time media was reported
         media = self.get_object(friendly_token)
+        if not (request.user == media.user or is_mediacms_editor(request.user) or is_mediacms_manager(request.user)):
+            return Response({"detail": "not allowed"}, status=status.HTTP_400_BAD_REQUEST)
+
         if isinstance(media, Response):
             return media
 
@@ -727,7 +818,7 @@ class MediaActions(APIView):
 
 class MediaSearch(APIView):
     """
-    Retrieve results for searc
+    Retrieve results for search
     Only GET is implemented here
     """
 
@@ -787,6 +878,11 @@ class MediaSearch(APIView):
 
         if category:
             media = media.filter(category__title__contains=category)
+            if getattr(settings, 'USE_RBAC', False) and request.user.is_authenticated:
+                c_object = Category.objects.filter(title=category, is_rbac_category=True).first()
+                if c_object and request.user.has_member_access_to_category(c_object):
+                    # show all media where user has access based on RBAC
+                    media = Media.objects.filter(category=c_object)
 
         if media_type:
             media = media.filter(media_type=media_type)
@@ -903,9 +999,10 @@ class PlaylistDetail(APIView):
 
         serializer = PlaylistDetailSerializer(playlist, context={"request": request})
 
-        playlist_media = PlaylistMedia.objects.filter(playlist=playlist).prefetch_related("media__user")
+        playlist_media = PlaylistMedia.objects.filter(playlist=playlist, media__state="public").prefetch_related("media__user")
 
         playlist_media = [c.media for c in playlist_media]
+
         playlist_media_serializer = MediaSerializer(playlist_media, many=True, context={"request": request})
         ret = serializer.data
         ret["playlist_media"] = playlist_media_serializer.data
@@ -1170,7 +1267,7 @@ class CommentList(APIView):
     def get(self, request, format=None):
         pagination_class = api_settings.DEFAULT_PAGINATION_CLASS
         paginator = pagination_class()
-        comments = Comment.objects.filter()
+        comments = Comment.objects.filter(media__state="public").order_by("-add_date")
         comments = comments.prefetch_related("user")
         comments = comments.prefetch_related("media")
         params = self.request.query_params
@@ -1193,7 +1290,7 @@ class CommentDetail(APIView):
     Delete comment (DELETE)
     """
 
-    permission_classes = (IsAuthorizedToAdd,)
+    permission_classes = (IsAuthorizedToAddComment,)
     parser_classes = (JSONParser, MultiPartParser, FormParser, FileUploadParser)
 
     def get_object(self, friendly_token):
@@ -1330,7 +1427,17 @@ class CategoryList(APIView):
         },
     )
     def get(self, request, format=None):
-        categories = Category.objects.filter().order_by("title")
+        if is_mediacms_editor(request.user):
+            categories = Category.objects.filter()
+        else:
+            categories = Category.objects.filter(is_rbac_category=False)
+
+            if getattr(settings, 'USE_RBAC', False) and request.user.is_authenticated:
+                rbac_categories = request.user.get_rbac_categories_as_member()
+                categories = categories.union(rbac_categories)
+
+        categories = categories.order_by("title")
+
         serializer = CategorySerializer(categories, many=True, context={"request": request})
         ret = serializer.data
         return Response(ret)
@@ -1398,3 +1505,38 @@ class TaskDetail(APIView):
         # This is not imported!
         # revoke(uid, terminate=True)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+def saml_metadata(request):
+    if not (hasattr(settings, "USE_SAML") and settings.USE_SAML):
+        raise Http404
+
+    xml_parts = ['<?xml version="1.0"?>']
+    saml_social_apps = SocialApp.objects.filter(provider='saml')
+    entity_id = f"{settings.FRONTEND_HOST}/saml/metadata/"
+    xml_parts.append(f'<md:EntitiesDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata" Name="{entity_id}">')  # noqa
+    xml_parts.append(f'    <md:EntityDescriptor entityID="{entity_id}">')  # noqa
+    xml_parts.append('        <md:SPSSODescriptor protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol">')  # noqa
+
+    # Add multiple AssertionConsumerService elements with different indices
+    for index, app in enumerate(saml_social_apps, start=1):
+        xml_parts.append(
+            f'            <md:AssertionConsumerService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST" '  # noqa
+            f'Location="{settings.FRONTEND_HOST}/accounts/saml/{app.client_id}/acs/" index="{index}"/>'  # noqa
+        )
+
+    xml_parts.append('        </md:SPSSODescriptor>')  # noqa
+    xml_parts.append('    </md:EntityDescriptor>')  # noqa
+    xml_parts.append('</md:EntitiesDescriptor>')  # noqa
+    metadata_xml = '\n'.join(xml_parts)
+    return HttpResponse(metadata_xml, content_type='application/xml')
+
+
+def custom_login_view(request):
+    if not (hasattr(settings, "USE_IDENTITY_PROVIDERS") and settings.USE_IDENTITY_PROVIDERS):
+        return redirect(reverse('login_system'))
+
+    login_options = []
+    for option in LoginOption.objects.filter(active=True):
+        login_options.append({'url': option.url, 'title': option.title})
+    return render(request, 'account/custom_login_selector.html', {'login_options': login_options})

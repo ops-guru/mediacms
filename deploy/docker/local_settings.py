@@ -7,11 +7,11 @@ REDIS_LOCATION = "redis://redis:6379/1"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": "mediacms",
-        "HOST": POSTGRES_HOST,
-        "PORT": "5432",
-        "USER": "mediacms",
-        "PASSWORD": "mediacms",
+        "NAME": os.getenv('POSTGRES_NAME', 'mediacms'),
+        "HOST": os.getenv('POSTGRES_HOST', 'db'),
+        "PORT": os.getenv('POSTGRES_PORT', '5432'),
+        "USER": os.getenv('POSTGRES_USER', 'mediacms'),
+        "PASSWORD": os.getenv('POSTGRES_PASSWORD', 'mediacms'),
     }
 }
 
@@ -31,4 +31,4 @@ CELERY_RESULT_BACKEND = BROKER_URL
 
 MP4HLS_COMMAND = "/home/mediacms.io/bento4/bin/mp4hls"
 
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'False') == 'True'

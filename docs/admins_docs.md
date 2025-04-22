@@ -18,6 +18,14 @@
 - [15. Debugging email issues](#15-debugging-email-issues)
 - [16. Frequently Asked Questions](#16-frequently-asked-questions)
 - [17. Cookie consent code](#17-cookie-consent-code)
+- [18. Disable encoding and show only original file](#18-disable-encoding-and-show-only-original-file)
+- [19. Rounded corners on videos](#19-rounded-corners)
+- [20. Translations](#20-translations)
+- [21. How to change the video frames on videos](#21-how-to-change-the-video-frames-on-videos)
+- [22. Role-Based Access Control](#22-role-based-access-control)
+- [23. SAML setup](#23-saml-setup)
+- [24. Identity Providers setup](#24-identity-providers-setup)
+
 
 
 ## 1. Welcome
@@ -352,11 +360,20 @@ ADMIN_EMAIL_LIST = ['info@mediacms.io']
 
 ### 5.13 Disallow user registrations from specific domains
 
-set domains that are not valid for registration via this variable:
+Set domains that are not valid for registration via this variable:
 
 ```
 RESTRICTED_DOMAINS_FOR_USER_REGISTRATION = [
     'xxx.com', 'emaildomainwhatever.com']
+```
+
+Alternatively, allow only permitted domains to register.  This can be useful if you're using mediacms as a private service within an organization, and want to give free registration for those in the org, but deny registration from all other domains.  Setting this option bans all domains NOT in the list from registering.   Default is a blank list, which is ignored.   To disable, set to a blank list.
+```
+ALLOWED_DOMAINS_FOR_USER_REGISTRATION = [
+	"private.com",
+	"vod.private.com",
+	"my.favorite.domain",
+	"test.private.com"]
 ```
 
 ### 5.14 Require a review by MediaCMS editors/managers/admins
@@ -469,6 +486,24 @@ ADMINS_NOTIFICATIONS = {
 
 - Make the portal workflow public, but at the same time set `GLOBAL_LOGIN_REQUIRED = True` so that only logged in users can see content.
 - You can either set `REGISTER_ALLOWED = False` if you want to add members yourself or checkout options on "django-allauth settings" that affects registration in `cms/settings.py`. Eg set the portal invite only, or set email confirmation as mandatory, so that you control who registers.
+
+### 5.24 Enable the sitemap
+
+Whether or not to enable generation of a sitemap file at http://your_installation/sitemap.xml (default: False)
+
+```
+GENERATE_SITEMAP = False
+```
+
+
+### 5.25 Control who can add comments
+
+By default `CAN_COMMENT = "all"` means that all registered users can add comment. Other valid options are:
+
+- **email_verified**, a user not only has to register an account but also verify the email (by clicking the link sent upon registration). Apparently email configuration need to work, otherise users won't receive emails.
+
+- **advancedUser**, only users that are marked as advanced users can add comment. Admins or MediaCMS managers can make users advanced users by editing their profile and selecting advancedUser.
+
 
 ## 6. Manage pages
 to be written
@@ -762,3 +797,179 @@ this will re-create the sprites for videos that the task failed.
 On file `templates/components/header.html` you can find a simple cookie consent code. It is commented, so you have to remove the `{% comment %}` and `{% endcomment %}` lines in order to enable it. Or you can replace that part with your own code that handles cookie consent banners.
 
 ![Simple Cookie Consent](images/cookie_consent.png)
+
+## 18. Disable encoding and show only original file
+When videos are uploaded, they are getting encoded to multiple resolutions, a procedure called transcoding. Sometimes this is not needed and you only need to show the original file, eg when MediaCMS is running on a low capabilities server. To achieve this, edit settings.py and set
+
+```
+DO_NOT_TRANSCODE_VIDEO = True
+```
+
+This will disable the transcoding process and only the original file will be shown. Note that this will also disable the sprites file creation, so you will not have the preview thumbnails on the video player.
+
+## 19. Rounded corners on videos
+
+By default the video player and media items are now having rounded corners, on larger screens (not in mobile). If you don't like this change, remove the `border-radius` added on the following files:
+
+```
+frontend/src/static/css/_extra.css
+frontend/src/static/js/components/list-item/Item.scss
+frontend/src/static/js/components/media-page/MediaPage.scss
+```
+you now have to re-run the frontend build in order to see the changes (check docs/dev_exp.md)
+
+
+## 20. Translations
+
+### 20.1 Set a default language
+
+By default MediaCMS is available in a number of languages. To set the default language, edit `settings.py` and set LANGUAGE_CODE to the code of one of the languages.
+
+### 20.2 Remove existing languages
+To limit the number of languages that are shown as available, remove them from the LANGUAGES list in `settings.py` or comment them. Only what is there is shown.
+
+### 20.3 Improve existing translation
+To make improvements in existing translated content, in a language that is already translated, check the language by the code name in `files/frontend-translations/` and edit the corresponding file.
+
+### 20.4 Add more content to existing translation
+Not all text is translated, so at any time you may find strings missing that need to be added to the translation. The idea here is that
+
+a) you made the text as translatable, in the code
+b) you add the translated string
+
+For a), you have to see if the string to be translated lives in the frontend directory (React app) or on the Django templates. There are examples for both.
+1. the Django templates, which is found in templates/ dir. Have a look on `templates/cms/about.html` to see an example of how it is done
+2. the frontend code (React), have a look how `translateString` is used in `frontend`
+
+
+After the string is marked as translatable, add the string to `files/frontend-translations/en.py` first, and then run
+
+```
+python manage.py process_translations
+```
+
+In order to populate the string in all the languages. NO PR will be accepted if this procedure is not followed. You don't have to translate the string to all supported languages, but the command has to run and populate the existing dictionaries with the new strings for all languages. This ensures that there is no missing string to be translated in any language.
+
+After this command is run, translate the string to the language you want. If the string to be translated lives in Django templates, you don't have to re-build the frontend. If the change lives in the frontend, you will have to re-build in order to see the changes. The Makefile command `make build-frontend` can help with this.
+
+
+### 20.5 Add a new language and translate
+To add a new language: add the language in settings.py, then add the file in `files/frontend-translations/`. Make sure you copy the initial strings by copying `files/frontend-translations/en.py` to it.
+
+## 21. How to change the video frames on videos
+
+By default while watching a video you can hover and see the small images named sprites that are extracted every 10 seconds of a video. You can change this number to something smaller by performing the following:
+
+* edit ./frontend/src/static/js/components/media-viewer/VideoViewer/index.js and change `seconds: 10 ` to the value you prefer, eg 2.
+* edit settings.py and set the same number for value SPRITE_NUM_SECS
+* now you have to re-build the frontend: the easiest way is to run `make build-frontend`, which requires Docker
+
+After that, newly uploaded videos will have sprites generated with the new number of seconds.
+
+
+
+## 22. Role-Based Access Control
+
+By default there are 3 statuses for any Media that lives on the system, public, unlisted, private. When RBAC support is added, a user that is part of a group has access to media that are published to one or more categories that the group is associated with. The workflow is this:
+
+
+1. A Group is created
+2. A Category is associated with the Group
+3. A User is added to the Group
+
+Now user can view the Media even if it is in private state. User also sees all media in Category page
+
+When user is added to group, they can be set as Member, Contributor, Manager. 
+
+- Member: user can view media that are published on one or more categories that this group is associated with
+- Contributor: besides viewing, user can also edit the Media in a category associated with this Group. They can also publish Media to this category
+- Manager: same as Contributor for now
+
+Use cases facilitated with RBAC:
+- viewing a Media in private state: if RBAC is enabled, if user is Member on a Group that is associated with a Category, and the media is published to this Category, then user can view the media
+- editing a Media: if RBAC is enabled, and user is Contributor to one or more Categories, they can publish media to these Categories as long as they are associated with one Group
+- viewing all media of a category: if RBAC is enabled, and user visits a Category, they are able to see the listing of all media that are published in this category, independent of their state, provided that the category is associated with a group that the user is member of
+- viewing all categories associated with groups the user is member of: if RBAC is enabled, and user visits the listing of categories, they can view all categories that are associated with a group the user is member
+
+How to enable RBAC support: 
+
+```
+USE_RBAC = True
+```
+
+on `local_settings.py` and restart the instance. 
+
+
+## 23. SAML setup
+SAML authentication is supported along with the option to utilize the SAML response and do useful things as setting up the user role in MediaCMS or participation in groups. 
+
+To enable SAML support, edit local_settings.py and set the following options:
+
+```
+USE_RBAC = True
+USE_SAML = True
+USE_IDENTITY_PROVIDERS = True
+
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
+SOCIALACCOUNT_ADAPTER = 'saml_auth.adapter.SAMLAccountAdapter'
+SOCIALACCOUNT_PROVIDERS = {
+    "saml": {
+        "provider_class": "saml_auth.custom.provider.CustomSAMLProvider",
+    }
+}
+```
+
+
+To set a SAML provider:
+
+- Step 1: Add SAML Identity Provider
+1. Navigate to Admin panel
+2. Select "Identity Provider"
+3. Configure as follows:
+   - **Provider**: saml
+   - **Provider ID**: an ID for the provider
+   - **IDP Config Name**: a name for the provider
+   - **Client ID**: the identifier that is part of the login, and that is shared with the IDP.
+   - **Site**: Set the default one
+
+- Step 2: Add SAML Configuration
+Select the SAML Configurations tab, create a new one and set:
+
+1. **IDP ID**: Must be a URL
+2. **IDP Certificate**: x509cert from your SAML provider
+3. **SSO URL**: 
+4. **SLO URL**: 
+5. **SP Metadata URL**: The metadata URL that the IDP will utilize. This can be https://{portal}/saml/metadata and is autogenerated by MediaCMS
+
+- Step 3: Set other Options
+1. **Email Settings**:
+   - `verified_email`: When enabled, emails from SAML responses will be marked as verified
+   - `Remove from groups`: When enabled, user is removed from a group after login, if they have been removed from the group on the IDP
+2. **Global Role Mapping**: Maps the role returned by SAML (as set in the SAML Configuration tab) with the role in MediaCMS
+3. **Group Role Mapping**: Maps the role returned by SAML (as set in the SAML Configuration tab) with the role in groups that user will be added
+4. **Group mapping**: This creates groups associated with this IDP. Group ids as they come from SAML, associated with MediaCMS groups
+5. **Category Mapping**: This maps a group id (from SAML response) with a category in MediaCMS
+
+## 24. Identity Providers setup
+
+A separate Django app identity_providers has been added in order to facilitate a number of configurations related to different identity providers. If this is enabled, it gives the following options:
+
+- allows to add an Identity Provider through Django admin, and set a number of mappings, as Group Mapping, Global Role mapping and more. While SAML is the only provider that can be added out of the box, any identity provider supported by django allauth can be added with minimal effort. If the response of the identity provider contains attributes as role, or groups, then these can be mapped to MediaCMS specific roles (advanced user, editor, manager, admin) and groups (rbac groups)
+- saves SAML response logs after user is authenticated (can be utilized for other providers too)
+- allows to specify a list of login options through the admin (eg system login, identity provider login)
+
+
+to enable the identity providers, set the following setting on `local_settings.py`:
+
+
+```
+USE_IDENTITY_PROVIDERS = True
+```
+
+Visiting the admin, you will see the Identity Providers tab and you can add one. 
+
