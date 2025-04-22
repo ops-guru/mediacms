@@ -92,7 +92,7 @@ services:
     depends_on:
       - migrations
   db:
-    image: postgres:17.2-alpine
+    image: postgres:15.2-alpine
     volumes:
       - ../postgres_data:/var/lib/postgresql/data/
     restart: always
@@ -102,7 +102,7 @@ services:
       POSTGRES_DB: mediacms
       TZ: Europe/London
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}", "--host=db", "--dbname=$POSTGRES_DB", "--username=$POSTGRES_USER"]
+      test: ["CMD-SHELL", "pg_isready", "--host=db", "--dbname=$POSTGRES_DB", "--username=$POSTGRES_USER"]
       interval: 30s
       timeout: 10s
       retries: 5
