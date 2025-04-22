@@ -18,6 +18,7 @@ from django.db.models.signals import m2m_changed, post_delete, post_save, pre_de
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.crypto import get_random_string
 from django.utils.html import strip_tags
 from imagekit.models import ProcessedImageField
 from imagekit.processors import ResizeToFit
@@ -81,6 +82,10 @@ CODECS = (
 
 ENCODE_EXTENSIONS_KEYS = [extension for extension, name in ENCODE_EXTENSIONS]
 ENCODE_RESOLUTIONS_KEYS = [resolution for resolution, name in ENCODE_RESOLUTIONS]
+
+
+def generate_uid():
+    return get_random_string(length=16)
 
 
 def original_media_file_path(instance, filename):
@@ -430,8 +435,13 @@ class Media(models.Model):
         self.set_media_type()
         if self.media_type == "video":
             self.set_thumbnail(force=True)
-            self.produce_sprite_from_video()
-            self.encode()
+            if settings.DO_NOT_TRANSCODE_VIDEO:
+                self.encoding_status = "success"
+                self.save()
+                self.produce_sprite_from_video()
+            else:
+                self.produce_sprite_from_video()
+                self.encode()
         elif self.media_type == "image":
             self.set_thumbnail(force=True)
         return True
@@ -667,6 +677,13 @@ class Media(models.Model):
             return ret
         for key in ENCODE_RESOLUTIONS_KEYS:
             ret[key] = {}
+
+        # if this is enabled, return original file on a way
+        # that video.js can consume
+        if settings.DO_NOT_TRANSCODE_VIDEO:
+            ret['0-original'] = {"h264": {"url": helpers.url_from_path(self.media_file.path), "status": "success", "progress": 100}}
+            return ret
+
         for encoding in self.encodings.select_related("profile").filter(chunk=False):
             if encoding.profile.extension == "gif":
                 continue
@@ -769,13 +786,45 @@ class Media(models.Model):
         return None
 
     @property
+    def slideshow_items(self):
+        slideshow_items = getattr(settings, "SLIDESHOW_ITEMS", 30)
+        if self.media_type != "image":
+            items = []
+        else:
+            qs = Media.objects.filter(listable=True, user=self.user, media_type="image").exclude(id=self.id).order_by('id')[:slideshow_items]
+
+            items = [
+                {
+                    "poster_url": item.poster_url,
+                    "url": item.get_absolute_url(),
+                    "thumbnail_url": item.thumbnail_url,
+                    "title": item.title,
+                    "original_media_url": item.original_media_url,
+                }
+                for item in qs
+            ]
+            items.insert(
+                0,
+                {
+                    "poster_url": self.poster_url,
+                    "url": self.get_absolute_url(),
+                    "thumbnail_url": self.thumbnail_url,
+                    "title": self.title,
+                    "original_media_url": self.original_media_url,
+                },
+            )
+        return items
+
+    @property
     def subtitles_info(self):
         """Property used on serializers
         Returns subtitles info
         """
 
         ret = []
-        for subtitle in self.subtitles.all():
+        # Retrieve all subtitles and sort by the first letter of their associated language's title
+        sorted_subtitles = sorted(self.subtitles.all(), key=lambda s: s.language.title[0])
+        for subtitle in sorted_subtitles:
             ret.append(
                 {
                     "src": helpers.url_from_path(subtitle.subtitle_file.path),
@@ -913,11 +962,11 @@ class License(models.Model):
 class Category(models.Model):
     """A Category base model"""
 
-    uid = models.UUIDField(unique=True, default=uuid.uuid4)
+    uid = models.CharField(unique=True, max_length=36, default=generate_uid)
 
     add_date = models.DateTimeField(auto_now_add=True)
 
-    title = models.CharField(max_length=100, unique=True, db_index=True)
+    title = models.CharField(max_length=100, db_index=True)
 
     description = models.TextField(blank=True)
 
@@ -937,6 +986,18 @@ class Category(models.Model):
 
     listings_thumbnail = models.CharField(max_length=400, blank=True, null=True, help_text="Thumbnail to show on listings")
 
+    is_rbac_category = models.BooleanField(default=False, db_index=True, help_text='If access to Category is controlled by role based membership of Groups')
+
+    identity_provider = models.ForeignKey(
+        'socialaccount.SocialApp',
+        blank=True,
+        null=True,
+        on_delete=models.CASCADE,
+        related_name='categories',
+        help_text='If category is related with a specific Identity Provider',
+        verbose_name='IDP Config Name',
+    )
+
     def __str__(self):
         return self.title
 
@@ -950,7 +1011,11 @@ class Category(models.Model):
     def update_category_media(self):
         """Set media_count"""
 
-        self.media_count = Media.objects.filter(listable=True, category=self).count()
+        if getattr(settings, 'USE_RBAC', False) and self.is_rbac_category:
+            self.media_count = Media.objects.filter(category=self).count()
+        else:
+            self.media_count = Media.objects.filter(listable=True, category=self).count()
+
         self.save(update_fields=["media_count"])
         return True
 
@@ -1166,8 +1231,35 @@ class Subtitle(models.Model):
 
     user = models.ForeignKey("users.User", on_delete=models.CASCADE)
 
+    class Meta:
+        ordering = ["language__title"]
+
     def __str__(self):
         return "{0}-{1}".format(self.media.title, self.language.title)
+
+    def get_absolute_url(self):
+        return f"{reverse('edit_subtitle')}?id={self.id}"
+
+    @property
+    def url(self):
+        return self.get_absolute_url()
+
+    def convert_to_srt(self):
+        input_path = self.subtitle_file.path
+        with tempfile.TemporaryDirectory(dir=settings.TEMP_DIRECTORY) as tmpdirname:
+            pysub = settings.PYSUBS_COMMAND
+
+            cmd = [pysub, input_path, "--to", "vtt", "-o", tmpdirname]
+            stdout = helpers.run_command(cmd)
+
+            list_of_files = os.listdir(tmpdirname)
+            if list_of_files:
+                subtitles_file = os.path.join(tmpdirname, list_of_files[0])
+                cmd = ["cp", subtitles_file, input_path]
+                stdout = helpers.run_command(cmd)  # noqa
+            else:
+                raise Exception("Could not convert to srt")
+        return True
 
 
 class RatingCategory(models.Model):
@@ -1241,7 +1333,7 @@ class Playlist(models.Model):
 
     @property
     def media_count(self):
-        return self.media.count()
+        return self.media.filter(listable=True).count()
 
     def get_absolute_url(self, api=False):
         if api:
@@ -1288,7 +1380,7 @@ class Playlist(models.Model):
 
     @property
     def thumbnail_url(self):
-        pm = self.playlistmedia_set.first()
+        pm = self.playlistmedia_set.filter(media__listable=True).first()
         if pm and pm.media.thumbnail:
             return helpers.url_from_path(pm.media.thumbnail.path)
         return None

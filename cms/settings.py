@@ -1,6 +1,7 @@
 import os
 
 from celery.schedules import crontab
+from django.utils.translation import gettext_lazy as _
 
 DEBUG = False
 
@@ -14,6 +15,10 @@ TIME_ZONE = "America/Toronto"
 # who can add media
 # valid options include 'all', 'email_verified', 'advancedUser'
 CAN_ADD_MEDIA = "advancedUser"
+
+# who can comment
+# valid options include 'all', 'email_verified', 'advancedUser'
+CAN_COMMENT = "all"
 
 # valid choices here are 'public', 'private', 'unlisted
 PORTAL_WORKFLOW = "public"
@@ -93,6 +98,9 @@ ALLOW_MENTION_IN_COMMENTS = False  # allowing to mention other users with @ in t
 # valid options: content, author
 RELATED_MEDIA_STRATEGY = "content"
 
+# Whether or not to generate a sitemap.xml listing the pages on the site (default: False)
+GENERATE_SITEMAP = False
+
 USE_I18N = True
 USE_L10N = True
 USE_TZ = True
@@ -104,7 +112,7 @@ TIME_TO_ACTION_ANONYMOUS = 10 * 60
 
 # django-allauth settings
 ACCOUNT_SESSION_REMEMBER = True
-ACCOUNT_AUTHENTICATION_METHOD = "username_email"
+ACCOUNT_LOGIN_METHODS = {"username", "email"}
 ACCOUNT_EMAIL_REQUIRED = True  # new users need to specify email
 ACCOUNT_EMAIL_VERIFICATION = "optional"  # 'mandatory' 'none'
 ACCOUNT_LOGIN_ON_EMAIL_CONFIRMATION = True
@@ -116,12 +124,14 @@ ACCOUNT_SIGNUP_PASSWORD_ENTER_TWICE = False
 ACCOUNT_USERNAME_REQUIRED = True
 ACCOUNT_LOGIN_ON_PASSWORD_RESET = True
 ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
-ACCOUNT_LOGIN_ATTEMPTS_LIMIT = 20
-ACCOUNT_LOGIN_ATTEMPTS_TIMEOUT = 5
 # registration won't be open, might also consider to remove links for register
 USERS_CAN_SELF_REGISTER = True
 
 RESTRICTED_DOMAINS_FOR_USER_REGISTRATION = ["opsguru.io"]
+
+# Comma separated list of domains:  ["organization.com", "private.organization.com", "org2.com"]
+# Empty list disables.
+ALLOWED_DOMAINS_FOR_USER_REGISTRATION = []
 
 # django rest settings
 REST_FRAMEWORK = {
@@ -219,11 +229,11 @@ POST_UPLOAD_AUTHOR_MESSAGE_UNLISTED_NO_COMMENTARY = ""
 
 CANNOT_ADD_MEDIA_MESSAGE = ""
 
-# mp4hls command, part of Bendo4
+# mp4hls command, part of Bento4
 MP4HLS_COMMAND = "/home/mediacms.io/mediacms/Bento4-SDK-1-6-0-637.x86_64-unknown-linux/bin/mp4hls"
 
 # highly experimental, related with remote workers
-ADMIN_TOKEN = "c2b8e1838b6128asd333ddc5e24"
+ADMIN_TOKEN = ""
 # this is used by remote workers to push
 # encodings once they are done
 # USE_BASIC_HTTP = True
@@ -238,35 +248,6 @@ ADMIN_TOKEN = "c2b8e1838b6128asd333ddc5e24"
 # uncomment the two lines related to htpasswd
 
 
-CKEDITOR_CONFIGS = {
-    "default": {
-        "toolbar": "Custom",
-        "width": "100%",
-        "toolbar_Custom": [
-            ["Styles"],
-            ["Format"],
-            ["Bold", "Italic", "Underline"],
-            ["HorizontalRule"],
-            [
-                "NumberedList",
-                "BulletedList",
-                "-",
-                "Outdent",
-                "Indent",
-                "-",
-                "JustifyLeft",
-                "JustifyCenter",
-                "JustifyRight",
-                "JustifyBlock",
-            ],
-            ["Link", "Unlink"],
-            ["Image"],
-            ["RemoveFormat", "Source"],
-        ],
-    }
-}
-
-
 AUTH_USER_MODEL = "users.User"
 LOGIN_REDIRECT_URL = "/"
 
@@ -276,7 +257,7 @@ AUTHENTICATION_BACKENDS = (
 )
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
+    "admin_customizations",
     "django.contrib.auth",
     "allauth",
     "allauth.account",
@@ -286,6 +267,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "jazzmin",
+    "django.contrib.admin",
     "django.contrib.sites",
     "rest_framework",
     "rest_framework.authtoken",
@@ -293,13 +276,17 @@ INSTALLED_APPS = [
     "files.apps.FilesConfig",
     "users.apps.UsersConfig",
     "actions.apps.ActionsConfig",
+    "rbac.apps.RbacConfig",
+    "identity_providers.apps.IdentityProvidersConfig",
     "debug_toolbar",
     "mptt",
     "crispy_forms",
+    "crispy_bootstrap5",
     "uploader.apps.UploaderConfig",
     "djcelery_email",
-    "ckeditor",
     "drf_yasg",
+    "allauth.socialaccount.providers.saml",
+    "saml_auth.apps.SamlAuthConfig",
 ]
 
 SOCIALACCOUNT_LOGIN_ON_GET=True
@@ -319,6 +306,7 @@ SOCIALACCOUNT_PROVIDERS = {
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -326,6 +314,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
 ]
 
 ROOT_URLCONF = "cms.urls"
@@ -353,11 +342,15 @@ WSGI_APPLICATION = "cms.wsgi.application"
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+        "OPTIONS": {
+            "user_attributes": ("username", "email", "first_name", "last_name"),
+            "max_similarity": 0.7,
+        },
     },
     {
         "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
         "OPTIONS": {
-            "min_length": 5,
+            "min_length": 7,
         },
     },
     {
@@ -469,6 +462,57 @@ CELERY_TASK_ALWAYS_EAGER = False
 if os.environ.get("TESTING"):
     CELERY_TASK_ALWAYS_EAGER = True
 
+# if True, only show original, don't perform any action on videos
+DO_NOT_TRANSCODE_VIDEO = False
+
+DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+
+LANGUAGES = [
+    ('ar', _('Arabic')),
+    ('bn', _('Bengali')),
+    ('nl', _('Dutch')),
+    ('en', _('English')),
+    ('fr', _('French')),
+    ('de', _('German')),
+    ('hi', _('Hindi')),
+    ('id', _('Indonesian')),
+    ('ja', _('Japanese')),
+    ('ko', _('Korean')),
+    ('pt', _('Portuguese')),
+    ('ru', _('Russian')),
+    ('zh-hans', _('Simplified Chinese')),
+    ('es', _('Spanish')),
+    ('tr', _('Turkish')),
+    ('el', _('Greek')),
+    ('ur', _('Urdu')),
+]
+
+LANGUAGE_CODE = 'en'  # default language
+
+SPRITE_NUM_SECS = 10
+# number of seconds for sprite image.
+# If you plan to change this, you must also follow the instructions on admin_docs.md
+# to change the equivalent value in ./frontend/src/static/js/components/media-viewer/VideoViewer/index.js and then re-build frontend
+
+# how many images will be shown on the slideshow
+SLIDESHOW_ITEMS = 30
+# this calculation is redundant most probably, setting as an option
+CALCULATE_MD5SUM = False
+
+CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
+CRISPY_TEMPLATE_PACK = "bootstrap5"
+
+# allow option to override the default admin url
+# keep the trailing slash
+DJANGO_ADMIN_URL = "admin/"
+
+# this are used around a number of places and will need to be well documented!!!
+
+USE_SAML = False
+USE_RBAC = False
+USE_IDENTITY_PROVIDERS = False
+JAZZMIN_UI_TWEAKS = {"theme": "flatly"}
+
 
 try:
     # keep a local_settings.py file for local overrides
@@ -480,19 +524,35 @@ except ImportError:
     # local_settings not in use
     pass
 
-
 if "http" not in FRONTEND_HOST:
     # FRONTEND_HOST needs a http:// preffix
-    FRONTEND_HOST = f"http://{FRONTEND_HOST}"
+    FRONTEND_HOST = f"http://{FRONTEND_HOST}"  # noqa
 
 if LOCAL_INSTALL:
     SSL_FRONTEND_HOST = FRONTEND_HOST.replace("http", "https")
 else:
     SSL_FRONTEND_HOST = FRONTEND_HOST
 
+
+# CSRF_COOKIE_SECURE = True
+# SESSION_COOKIE_SECURE = True
+
+PYSUBS_COMMAND = "pysubs2"
+
+# the following is related to local development using docker
+# and docker-compose-dev.yaml
+try:
+    DEVELOPMENT_MODE = os.environ.get("DEVELOPMENT_MODE")
+    if DEVELOPMENT_MODE:
+        # keep a dev_settings.py file for local overrides
+        from .dev_settings import *  # noqa
+except ImportError:
+    pass
+
+
 if GLOBAL_LOGIN_REQUIRED:
     # this should go after the AuthenticationMiddleware middleware
-    MIDDLEWARE.insert(5, "login_required.middleware.LoginRequiredMiddleware")
+    MIDDLEWARE.insert(6, "login_required.middleware.LoginRequiredMiddleware")
     LOGIN_REQUIRED_IGNORE_PATHS = [
         r'/accounts/login/$',
         r'/accounts/logout/$',
@@ -502,7 +562,5 @@ if GLOBAL_LOGIN_REQUIRED:
         r'/accounts/google/login/callback/.*/$',
         r'/accounts/password/.*/$',
         r'/accounts/confirm-email/.*/$',
-        r'/api/v[0-9]+/',
+        #        r'/api/v[0-9]+/',
     ]
-
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'

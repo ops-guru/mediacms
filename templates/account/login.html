@@ -9,13 +9,23 @@
 
 		<h1>Sign In</h1>
 
-		<form class="login" method="POST" action="{% url 'account_login' %}">
-		  
-		  <a href="{% provider_login_url 'google'%}?next=/">
-			  <i class="fab fa-google"></i>
-			  Login with Google
-		  </a>
+		<form class="login" method="POST" action="{% url 'login_system' %}">
+		  {% csrf_token %}
+		  {{ form.as_p }}
+		  {% if redirect_field_value %}
+		  <input type="hidden" name="{{ redirect_field_name }}" value="{{ redirect_field_value }}" />
+		  {% endif %}
+		  <button class="primaryAction" type="submit">Sign In</button>
 		</form>
+
+		<!-- Google login -->
+		<!-- <form class="login" method="POST" action="{% url 'account_login' %}">
+		  
+			<a href="{% provider_login_url 'google'%}?next=/">
+				<i class="fab fa-google"></i>
+				Login with Google
+			</a>
+		  </form> -->
 
     </div>
 </div>

@@ -48,7 +48,7 @@ ERRORS_LIST = [
 ]
 
 
-@task(name="chunkize_media", bind=True, queue="short_tasks", soft_time_limit=60 * 30)
+@task(name="chunkize_media", bind=True, queue="short_tasks", soft_time_limit=60 * 30 * 4)
 def chunkize_media(self, friendly_token, profiles, force=True):
     """Break media in chunks and start encoding tasks"""
 
@@ -384,14 +384,16 @@ def produce_sprite_from_video(friendly_token):
         try:
             tmpdir_image_files = tmpdirname + "/img%03d.jpg"
             output_name = tmpdirname + "/sprites.jpg"
-            cmd = "{0} -i {1} -f image2 -vf 'fps=1/10, scale=160:90' {2}&&files=$(ls {3}/img*.jpg | sort -t '-' -n -k 2 | tr '\n' ' ')&&convert $files -append {4}".format(
-                settings.FFMPEG_COMMAND,
-                media.media_file.path,
-                tmpdir_image_files,
-                tmpdirname,
-                output_name,
-            )
-            subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
+
+            fps = getattr(settings, 'SPRITE_NUM_SECS', 10)
+            ffmpeg_cmd = [settings.FFMPEG_COMMAND, "-i", media.media_file.path, "-f", "image2", "-vf", f"fps=1/{fps}, scale=160:90", tmpdir_image_files]  # noqa
+            run_command(ffmpeg_cmd)
+            image_files = [f for f in os.listdir(tmpdirname) if f.startswith("img") and f.endswith(".jpg")]
+            image_files = sorted(image_files, key=lambda x: int(re.search(r'\d+', x).group()))
+            image_files = [os.path.join(tmpdirname, f) for f in image_files]
+            cmd_convert = ["convert", *image_files, "-append", output_name]  # image files, unpacked into the list
+            ret = run_command(cmd_convert)  # noqa
+
             if os.path.exists(output_name) and get_file_type(output_name) == "image":
                 with open(output_name, "rb") as f:
                     myfile = File(f)
@@ -399,8 +401,8 @@ def produce_sprite_from_video(friendly_token):
                         content=myfile,
                         name=get_file_name(media.media_file.path) + "sprites.jpg",
                     )
-        except BaseException:
-            pass
+        except Exception as e:
+            print(e)
     return True
 
 
@@ -425,19 +427,27 @@ def create_hls(friendly_token):
     p = media.uid.hex
     output_dir = os.path.join(settings.HLS_DIR, p)
     encodings = media.encodings.filter(profile__extension="mp4", status="success", chunk=False, profile__codec="h264")
+
     if encodings:
         existing_output_dir = None
         if os.path.exists(output_dir):
             existing_output_dir = output_dir
             output_dir = os.path.join(settings.HLS_DIR, p + produce_friendly_token())
-        files = " ".join([f.media_file.path for f in encodings if f.media_file])
-        cmd = "{0} --segment-duration=4 --output-dir={1} {2}".format(settings.MP4HLS_COMMAND, output_dir, files)
-        subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
+        files = [f.media_file.path for f in encodings if f.media_file]
+        cmd = [settings.MP4HLS_COMMAND, '--segment-duration=4', f'--output-dir={output_dir}', *files]
+        run_command(cmd)
+
         if existing_output_dir:
             # override content with -T !
-            cmd = "cp -rT {0} {1}".format(output_dir, existing_output_dir)
-            subprocess.run(cmd, stdout=subprocess.PIPE, shell=True)
-            shutil.rmtree(output_dir)
+            cmd = ["cp", "-rT", output_dir, existing_output_dir]
+            run_command(cmd)
+
+            try:
+                shutil.rmtree(output_dir)
+            except:  # noqa
+                # this was breaking in some cases where it was already deleted
+                # because create_hls was running multiple times
+                pass
             output_dir = existing_output_dir
         pp = os.path.join(output_dir, "master.m3u8")
         if os.path.exists(pp):
@@ -644,7 +654,11 @@ def save_user_action(user_or_session, friendly_token=None, action="watch", extra
 
     if action == "watch":
         media.views += 1
-        media.save(update_fields=["views"])
+        Media.objects.filter(friendly_token=friendly_token).update(views=media.views)
+
+        # update field without calling save, to avoid post_save signals being triggered
+        # same in other actions
+
     elif action == "report":
         media.reported_times += 1
 
@@ -659,10 +673,10 @@ def save_user_action(user_or_session, friendly_token=None, action="watch", extra
         )
     elif action == "like":
         media.likes += 1
-        media.save(update_fields=["likes"])
+        Media.objects.filter(friendly_token=friendly_token).update(likes=media.likes)
     elif action == "dislike":
         media.dislikes += 1
-        media.save(update_fields=["dislikes"])
+        Media.objects.filter(friendly_token=friendly_token).update(dislikes=media.dislikes)
 
     return True
 
