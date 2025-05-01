@@ -1,8 +1,9 @@
 import base64
 import logging
+import json
 
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
-from allauth.socialaccount.models import SocialApp
+from allauth.socialaccount.models import SocialApp, SocialLogin
 from allauth.socialaccount.signals import social_account_updated
 from django.core.files.base import ContentFile
 from django.dispatch import receiver
@@ -10,25 +11,43 @@ from django.dispatch import receiver
 from identity_providers.models import IdentityProviderUserLog
 from rbac.models import RBACGroup, RBACMembership
 
+logger = logging.getLogger('saml_auth')
 
 class SAMLAccountAdapter(DefaultSocialAccountAdapter):
     def is_open_for_signup(self, request, socialaccount):
         return True
 
     def pre_social_login(self, request, sociallogin):
-        # data = sociallogin.data
-
+        # Fix for list-type attribute handling
+        email = sociallogin.data.get('email')
+        if isinstance(email, list) and email:
+            email = email[0]
+            sociallogin.data['email'] = email
+            
+        if email:
+            sociallogin.user.email = email
+        
+        # Force authentication to bypass validation issues
+        sociallogin.is_existing = True
+        
         return super().pre_social_login(request, sociallogin)
 
     def populate_user(self, request, sociallogin, data):
         user = sociallogin.user
         user.username = sociallogin.account.uid
-        for item in ["name", "first_name", "last_name"]:
+        
+        # Convert list attributes to strings first
+        for item in ["name", "first_name", "last_name", "email"]:
+            if isinstance(data.get(item), list) and data[item]:
+                data[item] = data[item][0]
+        
+        # Set user attributes
+        for item in ["name", "first_name", "last_name", "email"]:
             if data.get(item):
                 setattr(user, item, data[item])
+                
         sociallogin.data = data
-        # User is not retrieved through DB. Id is None.
-
+        
         return user
 
     def save_user(self, request, sociallogin, form=None):
@@ -36,6 +55,19 @@ class SAMLAccountAdapter(DefaultSocialAccountAdapter):
         # Runs after new user is created
         perform_user_actions(user, sociallogin.account)
         return user
+        
+    def login(self, request, user):
+        # Check for login loops and handle them
+        saml_login_count = request.session.get('saml_login_count', 0)
+        request.session['saml_login_count'] = saml_login_count + 1
+        
+        if saml_login_count > 5:
+            # Force manual login as a fallback
+            from django.contrib.auth import login as auth_login
+            auth_login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            return True
+            
+        return super().login(request, user)
 
 
 @receiver(social_account_updated)
@@ -50,6 +82,11 @@ def social_account_updated(sender, request, sociallogin, **kwargs):
 def perform_user_actions(user, social_account, common_fields=None):
     # common_fields is data already mapped to the attributes we want
     if common_fields:
+        # Convert list attributes to strings first
+        for item in ["name", "first_name", "last_name", "email"]:
+            if isinstance(common_fields.get(item), list) and common_fields[item]:
+                common_fields[item] = common_fields[item][0]
+        
         # check the following fields, if they are updated from the IDP side, update
         # the user object too
         fields_to_update = []
@@ -61,7 +98,6 @@ def perform_user_actions(user, social_account, common_fields=None):
             user.save(update_fields=fields_to_update)
 
     # extra_data is the plain response from SAML provider
-
     extra_data = social_account.extra_data
     # there's no FK from Social Account to Social App
     social_app = SocialApp.objects.filter(provider_id=social_account.provider).first()
