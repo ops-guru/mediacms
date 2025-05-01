@@ -26,12 +26,15 @@ class CustomSAMLProvider(SAMLProvider):
                 provider_keys = [provider_keys]
             for provider_key in provider_keys:
                 attribute_list = raw_attributes.get(provider_key, None)
-                # if more than one keys, get them all comma separated
-                if attribute_list is not None and len(attribute_list) > 1:
-                    attributes[key] = ",".join(attribute_list)
-                    break
-                elif attribute_list is not None and len(attribute_list) > 0:
-                    attributes[key] = attribute_list[0]
+                # if more than one keys, we prefer to join them but also pass them as they are
+                if attribute_list is not None and len(attribute_list) > 0:
+                    # Store the original list in extra_data
+                    if key in ['email', 'first_name', 'last_name', 'name']:
+                        attributes[key] = attribute_list[0]  # Use first value for key attributes
+                    elif len(attribute_list) > 1:
+                        attributes[key] = ",".join(attribute_list)  # Join list values for compatibility
+                    else:
+                        attributes[key] = attribute_list[0]  # Single value attributes
                     break
         attributes["email_verified"] = False
         email_verified = provider_config.get("email_verified", False)

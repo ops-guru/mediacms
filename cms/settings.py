@@ -36,7 +36,7 @@ LOGIN_ALLOWED = True  # whether the login button appears
 REGISTER_ALLOWED = False  # whether the register button appears
 UPLOAD_MEDIA_ALLOWED = True  # whether the upload media button appears
 CAN_LIKE_MEDIA = True  # whether the like media appears
-CAN_DISLIKE_MEDIA = False  # whether the dislike media appears
+CAN_DISLIKE_MEDIA = True  # whether the dislike media appears
 CAN_REPORT_MEDIA = True  # whether the report media appears
 CAN_SHARE_MEDIA = True  # whether the share media appears
 # how many times an item need be reported
@@ -49,7 +49,7 @@ ALLOW_RATINGS = False
 ALLOW_RATINGS_CONFIRMED_EMAIL_ONLY = True
 
 # ip of the server should be part of this
-ALLOWED_HOSTS = ["*", "mediacms.io", "127.0.0.1", "localhost","tv.opsguru.io"]
+ALLOWED_HOSTS = ["*", "mediacms.io", "127.0.0.1", "localhost", "tv.opsguru.io"]
 
 FRONTEND_HOST = "https://tv.opsguru.io"
 # this variable - along with SSL_FRONTEND_HOST is used on several places
@@ -127,11 +127,11 @@ ACCOUNT_EMAIL_CONFIRMATION_EXPIRE_DAYS = 1
 # registration won't be open, might also consider to remove links for register
 USERS_CAN_SELF_REGISTER = True
 
-RESTRICTED_DOMAINS_FOR_USER_REGISTRATION = ["opsguru.io"]
+RESTRICTED_DOMAINS_FOR_USER_REGISTRATION = ["opsguru.io", "carbon60.okta.com"]
 
 # Comma separated list of domains:  ["organization.com", "private.organization.com", "org2.com"]
 # Empty list disables.
-ALLOWED_DOMAINS_FOR_USER_REGISTRATION = []
+ALLOWED_DOMAINS_FOR_USER_REGISTRATION = ["opsguru.io", "carbon60.okta.com"]
 
 # django rest settings
 REST_FRAMEWORK = {
@@ -262,7 +262,6 @@ INSTALLED_APPS = [
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
-    "allauth.socialaccount.providers.google",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -289,20 +288,6 @@ INSTALLED_APPS = [
     "saml_auth.apps.SamlAuthConfig",
 ]
 
-SOCIALACCOUNT_LOGIN_ON_GET=True
-
-SOCIALACCOUNT_PROVIDERS = {
-    'google': {
-        'SCOPE': [
-            'profile',
-            'email',
-        ],
-        'AUTH_PARAMS': {
-            'access_type': 'online',
-        }
-    }
-}
-
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -310,7 +295,6 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "debug_toolbar.middleware.DebugToolbarMiddleware",
@@ -397,7 +381,7 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "mediacms",
-        "HOST": "127.0.0.1",
+        "HOST": "db",
         "PORT": "5432",
         "USER": "mediacms",
         "PASSWORD": "mediacms",
@@ -506,11 +490,6 @@ CRISPY_TEMPLATE_PACK = "bootstrap5"
 # keep the trailing slash
 DJANGO_ADMIN_URL = "admin/"
 
-# this are used around a number of places and will need to be well documented!!!
-
-USE_SAML = False
-USE_RBAC = False
-USE_IDENTITY_PROVIDERS = False
 JAZZMIN_UI_TWEAKS = {"theme": "flatly"}
 
 
@@ -533,10 +512,6 @@ if LOCAL_INSTALL:
 else:
     SSL_FRONTEND_HOST = FRONTEND_HOST
 
-
-# CSRF_COOKIE_SECURE = True
-# SESSION_COOKIE_SECURE = True
-
 PYSUBS_COMMAND = "pysubs2"
 
 # the following is related to local development using docker
@@ -554,13 +529,29 @@ if GLOBAL_LOGIN_REQUIRED:
     # this should go after the AuthenticationMiddleware middleware
     MIDDLEWARE.insert(6, "login_required.middleware.LoginRequiredMiddleware")
     LOGIN_REQUIRED_IGNORE_PATHS = [
+        r'/accounts/saml/.*',
         r'/accounts/login/$',
         r'/accounts/logout/$',
         r'/accounts/signup/$',
-        r'/accounts/google/login/$',
-        r'/accounts/google/login/.*/$',
-        r'/accounts/google/login/callback/.*/$',
         r'/accounts/password/.*/$',
         r'/accounts/confirm-email/.*/$',
         #        r'/api/v[0-9]+/',
     ]
+
+### SAML SETUP ###
+SOCIALACCOUNT_PROVIDERS = {
+    "saml": {
+        "provider_class": "saml_auth.custom.provider.CustomSAMLProvider",
+    }
+}
+
+USE_SAML = True
+USE_RBAC = True
+USE_IDENTITY_PROVIDERS = True
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = True
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
+SOCIALACCOUNT_ADAPTER = 'saml_auth.adapter.SAMLAccountAdapter'
